@@ -1,0 +1,13 @@
+{
+  "name": "QRNova-example-sdk-node",
+  "private": true,
+  "type": "module",
+  "description": "Create a dynamic QR code and read analytics with @QRNova/sdk.",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@qrforge/core": "^0.1.0",
+    "@QRNova/sdk": "^0.1.0"
+  }
+}

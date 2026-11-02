@@ -1,0 +1,53 @@
+
+# QRNova — full production-style stack (PostgreSQL + QRNova).
+#
+#   docker compose up -d        →  http://localhost
+#
+# Settings can be overridden in a .env file next to this file (see .env.example).
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: qrnova
+      POSTGRES_USER: qrnova
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qrnova}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qrnova -d qrnova"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # Exposed on localhost only, for `npm run dev` against Postgres.
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+
+  qrnova:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: ${QRNOVA_IMAGE:-qrnova:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      QRNOVA_DATABASE_URL: postgres://qrnova:${POSTGRES_PASSWORD:-qrnova}@postgres:5432/qrnova?sslmode=disable
+      QRNOVA_BASE_URL: ${QRNOVA_BASE_URL:-http://localhost}
+      QRNOVA_REGISTRATION: ${QRNOVA_REGISTRATION:-open}
+      QRNOVA_ADMIN_EMAIL: ${QRNOVA_ADMIN_EMAIL:-}
+      QRNOVA_ADMIN_PASSWORD: ${QRNOVA_ADMIN_PASSWORD:-}
+      QRNOVA_TRUSTED_PROXIES: ${QRNOVA_TRUSTED_PROXIES:-}
+      QRNOVA_COUNTRY_HEADER: ${QRNOVA_COUNTRY_HEADER:-}
+      QRNOVA_SMTP_HOST: ${QRNOVA_SMTP_HOST:-}
+      QRNOVA_SMTP_PORT: ${QRNOVA_SMTP_PORT:-587}
+      QRNOVA_SMTP_USERNAME: ${QRNOVA_SMTP_USERNAME:-}
+      QRNOVA_SMTP_PASSWORD: ${QRNOVA_SMTP_PASSWORD:-}
+      QRNOVA_SMTP_FROM: ${QRNOVA_SMTP_FROM:-}
+    ports:
+      - "${QRNOVA_PORT:-80}:8080"
+
+volumes:
+  postgres-data:
