@@ -36,7 +36,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/kspkr/QRNova.git",
+    "url": "https://module github.com/kspkr/QRNova/QRNova.git",
     "directory": "packages/core"
   },
   "homepage": "https://github.com/kspkr/QRNova/tree/main/packages/core#readme",

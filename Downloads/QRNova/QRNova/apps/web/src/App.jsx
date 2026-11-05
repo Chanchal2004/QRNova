@@ -1,13 +1,25 @@
+
 import { lazy, Suspense } from "react";
-import { Routes, Route, Outlet, Navigate, useLocation } from "react-router";
+import {
+  Routes,
+  Route,
+  Outlet,
+  Navigate,
+  useLocation,
+} from "react-router";
+
 import { SiteHeader, SiteFooter } from "./components/layout/SiteHeader.jsx";
 import { Spinner } from "./components/ui/misc.jsx";
 import { useSession } from "./lib/session.jsx";
+
 import Landing from "./pages/Landing.jsx";
 import Studio from "./pages/Studio.jsx";
 import NotFound from "./pages/NotFound.jsx";
 
-// Account, dashboard and admin features are lazy-loaded so the Studio stays fast.
+// Public documentation page
+const Docs = lazy(() => import("./pages/Docs.jsx"));
+
+// Account, dashboard and admin features are lazy-loaded.
 const Login = lazy(() => import("./pages/auth/Login.jsx"));
 const Register = lazy(() => import("./pages/auth/Register.jsx"));
 const ForgotPassword = lazy(() => import("./pages/auth/ForgotPassword.jsx"));
@@ -48,12 +60,15 @@ function PublicLayout() {
       >
         Skip to content
       </a>
+
       <SiteHeader />
+
       <main id="main" className="flex-1">
         <Suspense fallback={<PageFallback />}>
           <Outlet />
         </Suspense>
       </main>
+
       <SiteFooter />
     </div>
   );
@@ -63,10 +78,25 @@ function PublicLayout() {
 function RequireUser({ admin = false }) {
   const { server, user, loading } = useSession();
   const location = useLocation();
+
   if (loading) return <PageFallback />;
   if (!server) return <Navigate to="/studio" replace />;
-  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
-  if (admin && user.role !== "admin") return <Navigate to="/app" replace />;
+
+  if (!user) {
+    return (
+      <Navigate
+        to={`/login?next=${encodeURIComponent(
+          location.pathname + location.search
+        )}`}
+        replace
+      />
+    );
+  }
+
+  if (admin && user.role !== "admin") {
+    return <Navigate to="/app" replace />;
+  }
+
   return (
     <Suspense fallback={<PageFallback />}>
       <AppShell admin={admin} />
@@ -77,8 +107,13 @@ function RequireUser({ admin = false }) {
 export function App() {
   return (
     <Routes>
+      {/* Public website routes */}
       <Route element={<PublicLayout />}>
         <Route index element={<Landing />} />
+
+        {/* QRNova Documentation */}
+        <Route path="docs" element={<Docs />} />
+
         <Route path="studio" element={<Studio />} />
         <Route path="login" element={<Login />} />
         <Route path="register" element={<Register />} />
@@ -87,6 +122,8 @@ export function App() {
         <Route path="report" element={<Report />} />
         <Route path="*" element={<NotFound />} />
       </Route>
+
+      {/* User dashboard routes */}
       <Route path="app" element={<RequireUser />}>
         <Route index element={<Overview />} />
         <Route path="codes" element={<Codes />} />
@@ -99,6 +136,8 @@ export function App() {
         <Route path="api-keys" element={<ApiKeys />} />
         <Route path="settings" element={<Settings />} />
       </Route>
+
+      {/* Admin routes */}
       <Route path="admin" element={<RequireUser admin />}>
         <Route index element={<AdminOverview />} />
         <Route path="users" element={<AdminUsers />} />

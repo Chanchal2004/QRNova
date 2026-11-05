@@ -17,7 +17,7 @@ hero:
       link: /guide/docker
     - theme: alt
       text: GitHub
-      link: https://github.com/kspkr/QRNova
+      link: https://module github.com/kspkr/QRNova/QRNova
 
 features:
   - title: Local generation

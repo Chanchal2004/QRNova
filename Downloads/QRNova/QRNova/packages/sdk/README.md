@@ -1,6 +1,6 @@
 # @QRNova/sdk
 
-This is a small JavaScript client for the [QRNova](https://github.com/kspkr/QRNova) REST API. Use it to create dynamic QR codes, change where they point, group them into campaigns and read their anonymous scan analytics on your self-hosted QRNova server.
+This is a small JavaScript client for the [QRNova](https://module github.com/kspkr/QRNova/QRNova) REST API. Use it to create dynamic QR codes, change where they point, group them into campaigns and read their anonymous scan analytics on your self-hosted QRNova server.
 
 - No dependencies. It's built on `fetch`.
 - Works in Node.js 18+, Bun, Deno and modern browsers.

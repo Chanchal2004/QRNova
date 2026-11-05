@@ -47,6 +47,6 @@ src/
 
 | Variable          | Default                               | Purpose                          |
 | ----------------- | ------------------------------------- | -------------------------------- |
-| `VITE_REPO_URL`   | `https://github.com/kspkr/QRNova`  | GitHub links                     |
+| `VITE_REPO_URL`   | `https://module github.com/kspkr/QRNova/QRNova`  | GitHub links                     |
 | `VITE_DOCS_URL`   | repo `apps/docs` folder               | Documentation links              |
 | `QRNova_API_URL` | `http://localhost:8080`               | Dev-server proxy target          |

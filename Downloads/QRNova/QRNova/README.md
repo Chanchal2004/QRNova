@@ -49,7 +49,7 @@ URL, plain text, Wi-Fi, contact (vCard), email, SMS, phone, location and calenda
 The [hosted Studio](https://kspkr.github.io/QRNova/) generates static codes with no installation. To run the full platform:
 
 ```bash
-git clone https://github.com/kspkr/QRNova.git
+git clone https://module github.com/kspkr/QRNova/QRNova.git
 cd QRNova
 docker compose up -d
 ```

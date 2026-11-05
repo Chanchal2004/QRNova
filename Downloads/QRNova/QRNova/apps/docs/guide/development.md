@@ -5,7 +5,7 @@ Development requires Node.js 20+ and Go 1.26+. Docker is optional and only neede
 ## Setup
 
 ```bash
-git clone https://github.com/kspkr/QRNova.git
+git clone https://module github.com/kspkr/QRNova/QRNova.git
 cd QRNova
 npm install          # installs every JavaScript workspace
 npm run dev          # Go API on :8080 and web app on :5173
@@ -48,7 +48,7 @@ cd apps/web && npm run dev               # web app (http://localhost:5173)
 | `packages/sdk` | `@QRNova/sdk` | `node --test` with a mocked `fetch` and a real HTTP server |
 | `apps/web` | `@QRNova/web` | Vitest and Testing Library |
 | `apps/docs` | `@QRNova/docs` | The build fails on dead links |
-| `server/`, `apps/api` | Go module `github.com/kspkr/QRNova` | `go test` (unit tests and `httptest` API tests) |
+| `server/`, `apps/api` | Go module `module github.com/kspkr/QRNova/QRNova` | `go test` (unit tests and `httptest` API tests) |
 
 The JavaScript packages are ES modules without a build step. The web app imports them directly from the workspace.
 

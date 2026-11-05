@@ -20,7 +20,7 @@ The server is a single Go binary. It provides the REST API, the redirect service
 ### Docker (recommended)
 
 ```bash
-git clone https://github.com/kspkr/QRNova.git
+git clone https://module github.com/kspkr/QRNova/QRNova.git
 cd QRNova
 docker compose up -d        # PostgreSQL + QRNova on http://localhost
 ```
@@ -32,7 +32,7 @@ docker compose up -d        # PostgreSQL + QRNova on http://localhost
 Requires Go 1.26+ and Node.js 20+.
 
 ```bash
-git clone https://github.com/kspkr/QRNova.git
+git clone https://module github.com/kspkr/QRNova/QRNova.git
 cd QRNova
 npm install
 npm run build                           # builds apps/web into apps/web/dist

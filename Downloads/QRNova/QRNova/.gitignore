@@ -9,8 +9,8 @@ coverage/
 *.db-journal
 *.db-wal
 *.db-shm
-/apps/api/qrforge
-/apps/api/qrforge.exe
+/apps/api/qrNova
+/apps/api/qrNova.exe
 /bin/
 apps/docs/.vitepress/cache/
 apps/docs/.vitepress/dist/

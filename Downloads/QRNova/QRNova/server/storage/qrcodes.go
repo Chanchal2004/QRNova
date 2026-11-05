@@ -1,271 +1,357 @@
+
 package storage
 
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"strings"
 )
 
-// QRCode is a saved static or dynamic QR code.
 type QRCode struct {
 	ID               string
 	UserID           string
 	Name             string
-	Kind             string // "static" | "dynamic"
+	Kind             string
 	QRType           string
 	Content          string
 	Destination      *string
 	Slug             *string
-	Status           string // "active" | "disabled"
+	FileID           *string
+	File             *File
+	Status           string
 	DisabledReason   *string
 	AdminLocked      bool
+	OwnerDisabled    bool
 	ExpiresAt        *int64
 	PasswordHash     *string
-	UTM              *string // JSON object
+	UTM              *string
 	AnalyticsEnabled bool
 	CampaignID       *string
 	DomainID         *string
-	Design           *string // JSON
-	FormData         *string // JSON
-	FileID           *string
+	DomainHost       *string
+	DomainVerified   bool
+	Design           *string
+	FormData         *string
+	ScanCount        int64
 	CreatedAt        int64
 	UpdatedAt        int64
-
-	// Derived / joined fields.
-	ScanCount      int64
-	OwnerEmail     string
-	OwnerDisabled  bool
-	DomainHost     *string
-	DomainVerified bool
-	File           *File // set when FileID refers to an existing file
+	OwnerEmail       string
 }
 
-const qrSelect = `SELECT q.id, q.user_id, q.name, q.kind, q.qr_type, q.content, q.destination, q.slug, q.status,
-	q.disabled_reason, q.admin_locked, q.expires_at, q.password_hash, q.utm, q.analytics_enabled, q.campaign_id,
-	q.domain_id, q.design, q.form_data, q.file_id, q.created_at, q.updated_at,
-	(SELECT COUNT(*) FROM scans s WHERE s.qrcode_id = q.id) AS scan_count,
-	u.email, u.disabled, d.hostname, d.verified,
-	f.name, f.content_type, f.size, f.sha256, f.storage_key, f.created_at
-	FROM qrcodes q JOIN users u ON u.id = q.user_id LEFT JOIN domains d ON d.id = q.domain_id
-	LEFT JOIN files f ON f.id = q.file_id`
-
-func scanQRCode(row interface{ Scan(...any) error }) (*QRCode, error) {
-	var q QRCode
-	var dest, slug, reason, pw, utm, campaign, domain, design, form, fileID, host sql.NullString
-	var fileName, fileType, fileHash, fileKey sql.NullString
-	var expires, fileSize, fileCreated sql.NullInt64
-	var verified sql.NullBool
-	err := row.Scan(&q.ID, &q.UserID, &q.Name, &q.Kind, &q.QRType, &q.Content, &dest, &slug, &q.Status,
-		&reason, &q.AdminLocked, &expires, &pw, &utm, &q.AnalyticsEnabled, &campaign,
-		&domain, &design, &form, &fileID, &q.CreatedAt, &q.UpdatedAt, &q.ScanCount,
-		&q.OwnerEmail, &q.OwnerDisabled, &host, &verified,
-		&fileName, &fileType, &fileSize, &fileHash, &fileKey, &fileCreated)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	q.Destination, q.Slug, q.DisabledReason = ptrString(dest), ptrString(slug), ptrString(reason)
-	q.PasswordHash, q.UTM, q.CampaignID = ptrString(pw), ptrString(utm), ptrString(campaign)
-	q.DomainID, q.Design, q.FormData = ptrString(domain), ptrString(design), ptrString(form)
-	q.ExpiresAt = ptrInt64(expires)
-	q.DomainHost = ptrString(host)
-	q.DomainVerified = verified.Valid && verified.Bool
-	q.FileID = ptrString(fileID)
-	if q.FileID != nil && fileKey.Valid {
-		q.File = &File{
-			ID: *q.FileID, UserID: q.UserID, Name: fileName.String, ContentType: fileType.String,
-			Size: fileSize.Int64, SHA256: fileHash.String, StorageKey: fileKey.String, CreatedAt: fileCreated.Int64,
-		}
-	}
-	return &q, nil
-}
-
-// CreateQRCode inserts a QR code. Returns ErrConflict when the slug is taken.
-func (db *DB) CreateQRCode(ctx context.Context, q *QRCode) error {
-	now := Now()
-	if q.ID == "" {
-		q.ID = NewID("qr")
-	}
-	q.CreatedAt, q.UpdatedAt = now, now
-	if q.Status == "" {
-		q.Status = "active"
-	}
-	_, err := db.Exec(ctx, `INSERT INTO qrcodes (id, user_id, name, kind, qr_type, content, destination, slug, status,
-		disabled_reason, admin_locked, expires_at, password_hash, utm, analytics_enabled, campaign_id, domain_id,
-		design, form_data, file_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		q.ID, q.UserID, q.Name, q.Kind, q.QRType, q.Content, nullString(q.Destination), nullString(q.Slug), q.Status,
-		nullString(q.DisabledReason), q.AdminLocked, nullInt64(q.ExpiresAt), nullString(q.PasswordHash), nullString(q.UTM),
-		q.AnalyticsEnabled, nullString(q.CampaignID), nullString(q.DomainID), nullString(q.Design), nullString(q.FormData),
-		nullString(q.FileID), q.CreatedAt, q.UpdatedAt)
-	return mapErr(err)
-}
-
-// UpdateQRCode persists every mutable column of q.
-func (db *DB) UpdateQRCode(ctx context.Context, q *QRCode) error {
-	q.UpdatedAt = Now()
-	_, err := db.Exec(ctx, `UPDATE qrcodes SET name = ?, qr_type = ?, content = ?, destination = ?, slug = ?, status = ?,
-		disabled_reason = ?, admin_locked = ?, expires_at = ?, password_hash = ?, utm = ?, analytics_enabled = ?,
-		campaign_id = ?, domain_id = ?, design = ?, form_data = ?, file_id = ?, updated_at = ? WHERE id = ?`,
-		q.Name, q.QRType, q.Content, nullString(q.Destination), nullString(q.Slug), q.Status,
-		nullString(q.DisabledReason), q.AdminLocked, nullInt64(q.ExpiresAt), nullString(q.PasswordHash), nullString(q.UTM),
-		q.AnalyticsEnabled, nullString(q.CampaignID), nullString(q.DomainID), nullString(q.Design), nullString(q.FormData),
-		nullString(q.FileID), q.UpdatedAt, q.ID)
-	return mapErr(err)
-}
-
-// GetQRCode fetches a code by id. If userID is non-empty the code must belong to that user.
-func (db *DB) GetQRCode(ctx context.Context, id, userID string) (*QRCode, error) {
-	if userID == "" {
-		return scanQRCode(db.QueryRow(ctx, qrSelect+" WHERE q.id = ?", id))
-	}
-	return scanQRCode(db.QueryRow(ctx, qrSelect+" WHERE q.id = ? AND q.user_id = ?", id, userID))
-}
-
-// GetQRCodeBySlug fetches a dynamic code by its slug.
-func (db *DB) GetQRCodeBySlug(ctx context.Context, slug string) (*QRCode, error) {
-	return scanQRCode(db.QueryRow(ctx, qrSelect+" WHERE q.slug = ?", slug))
-}
-
-// SlugExists reports whether a slug is in use.
-func (db *DB) SlugExists(ctx context.Context, slug string) (bool, error) {
-	n, err := db.Count(ctx, "SELECT COUNT(*) FROM qrcodes WHERE slug = ?", slug)
-	return n > 0, err
-}
-
-func (db *DB) DeleteQRCode(ctx context.Context, id, userID string) error {
-	res, err := db.Exec(ctx, "DELETE FROM qrcodes WHERE id = ? AND user_id = ?", id, userID)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// CountQRCodes returns how many codes a user owns.
-func (db *DB) CountQRCodes(ctx context.Context, userID string) (int64, error) {
-	return db.Count(ctx, "SELECT COUNT(*) FROM qrcodes WHERE user_id = ?", userID)
-}
-
-// QRFilter describes a QR code listing.
 type QRFilter struct {
-	UserID     string // empty = all users (admin)
-	Kind       string
-	Status     string
+	UserID     string
 	CampaignID string
+	Status     string
+	Kind       string
 	Query      string
 	Sort       string
 	Limit      int
 	Offset     int
 }
 
-var qrSorts = map[string]string{
-	"created_at":  "q.created_at ASC, q.id",
-	"-created_at": "q.created_at DESC, q.id",
-	"name":        "LOWER(q.name) ASC, q.id",
-	"-name":       "LOWER(q.name) DESC, q.id",
-	"scan_count":  "scan_count ASC, q.id",
-	"-scan_count": "scan_count DESC, q.id",
+func ValidQRSort(sort string) bool {
+	switch sort {
+	case "created_at", "-created_at", "name", "-name",
+		"scan_count", "-scan_count":
+		return true
+	}
+	return false
 }
 
-// ValidQRSort reports whether s is an accepted sort key.
-func ValidQRSort(s string) bool { _, ok := qrSorts[s]; return ok }
+const qrSelect = `
+SELECT
+	q.id, q.user_id, q.name, q.kind, q.qr_type, q.content,
+	q.destination, q.slug, q.file_id, q.status, q.disabled_reason,
+	q.admin_locked, q.owner_disabled, q.expires_at, q.password_hash,
+	q.utm, q.analytics_enabled, q.campaign_id, q.domain_id,
+	d.hostname, COALESCE(d.verified, FALSE),
+	q.design, q.form_data, q.scan_count, q.created_at, q.updated_at,
+	u.email
+FROM qrcodes q
+JOIN users u ON u.id = q.user_id
+LEFT JOIN domains d ON d.id = q.domain_id
+`
 
-// ListQRCodes returns a page of codes matching f and the total count.
+func scanQRCode(row interface{ Scan(...any) error }) (*QRCode, error) {
+	q := &QRCode{}
+	err := row.Scan(
+		&q.ID, &q.UserID, &q.Name, &q.Kind, &q.QRType, &q.Content,
+		&q.Destination, &q.Slug, &q.FileID, &q.Status, &q.DisabledReason,
+		&q.AdminLocked, &q.OwnerDisabled, &q.ExpiresAt, &q.PasswordHash,
+		&q.UTM, &q.AnalyticsEnabled, &q.CampaignID, &q.DomainID,
+		&q.DomainHost, &q.DomainVerified,
+		&q.Design, &q.FormData, &q.ScanCount, &q.CreatedAt, &q.UpdatedAt,
+		&q.OwnerEmail,
+	)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return q, nil
+}
+
+func (db *DB) loadQRFile(ctx context.Context, q *QRCode) {
+	if q.FileID == nil {
+		return
+	}
+	file, err := db.GetFile(ctx, *q.FileID, q.UserID)
+	if err == nil {
+		q.File = file
+	}
+}
+
+func (db *DB) GetQRCode(ctx context.Context, id, userID string) (*QRCode, error) {
+	query := qrSelect + `
+	WHERE q.id = ? AND (? = '' OR q.user_id = ?)
+	LIMIT 1`
+
+	q, err := scanQRCode(db.QueryRow(ctx, query, id, userID, userID))
+	if err != nil {
+		return nil, err
+	}
+	db.loadQRFile(ctx, q)
+	return q, nil
+}
+
+func (db *DB) GetQRCodeBySlug(ctx context.Context, slug string) (*QRCode, error) {
+	q, err := scanQRCode(db.QueryRow(ctx,
+		qrSelect+` WHERE q.slug = ? LIMIT 1`, slug))
+	if err != nil {
+		return nil, err
+	}
+	db.loadQRFile(ctx, q)
+	return q, nil
+}
+
+func (db *DB) CreateQRCode(ctx context.Context, q *QRCode) error {
+	now := Now()
+	if q.ID == "" {
+		q.ID = NewID("qr")
+	}
+	if q.Status == "" {
+		q.Status = "active"
+	}
+	if q.QRType == "" {
+		q.QRType = "url"
+	}
+	if q.Kind == "" {
+		q.Kind = "dynamic"
+	}
+	q.CreatedAt = now
+	q.UpdatedAt = now
+
+	_, err := db.Exec(ctx, `
+		INSERT INTO qrcodes (
+			id, user_id, name, kind, qr_type, content,
+			destination, slug, file_id, status, disabled_reason,
+			admin_locked, owner_disabled, expires_at, password_hash,
+			utm, analytics_enabled, campaign_id, domain_id,
+			design, form_data, scan_count, created_at, updated_at
+		) VALUES (
+			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?, ?, ?, ?
+		)`,
+		q.ID, q.UserID, q.Name, q.Kind, q.QRType, q.Content,
+		q.Destination, q.Slug, q.FileID, q.Status, q.DisabledReason,
+		q.AdminLocked, q.OwnerDisabled, q.ExpiresAt, q.PasswordHash,
+		q.UTM, q.AnalyticsEnabled, q.CampaignID, q.DomainID,
+		q.Design, q.FormData, q.ScanCount, q.CreatedAt, q.UpdatedAt,
+	)
+	return mapErr(err)
+}
+
+func (db *DB) UpdateQRCode(ctx context.Context, q *QRCode) error {
+	q.UpdatedAt = Now()
+
+	result, err := db.Exec(ctx, `
+		UPDATE qrcodes SET
+			name = ?, kind = ?, qr_type = ?, content = ?,
+			destination = ?, slug = ?, file_id = ?, status = ?,
+			disabled_reason = ?, admin_locked = ?, owner_disabled = ?,
+			expires_at = ?, password_hash = ?, utm = ?,
+			analytics_enabled = ?, campaign_id = ?, domain_id = ?,
+			design = ?, form_data = ?, updated_at = ?
+		WHERE id = ?`,
+		q.Name, q.Kind, q.QRType, q.Content,
+		q.Destination, q.Slug, q.FileID, q.Status,
+		q.DisabledReason, q.AdminLocked, q.OwnerDisabled,
+		q.ExpiresAt, q.PasswordHash, q.UTM,
+		q.AnalyticsEnabled, q.CampaignID, q.DomainID,
+		q.Design, q.FormData, q.UpdatedAt, q.ID,
+	)
+	if err != nil {
+		return mapErr(err)
+	}
+	n, err := result.RowsAffected()
+	if err == nil && n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (db *DB) DeleteQRCode(ctx context.Context, id, userID string) error {
+	result, err := db.Exec(ctx, `
+		DELETE FROM qrcodes
+		WHERE id = ? AND user_id = ?`, id, userID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err == nil && n == 0 {
+		return ErrNotFound
+	}
+	return err
+}
+
+func (db *DB) SlugExists(ctx context.Context, slug, excludeID string) (bool, error) {
+	var count int64
+	err := db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM qrcodes
+		WHERE slug = ? AND id <> ?`, slug, excludeID).Scan(&count)
+	return count > 0, err
+}
+
+func (db *DB) CountQRCodes(ctx context.Context, userID string) (int64, error) {
+	if userID == "" {
+		return db.Count(ctx, `SELECT COUNT(*) FROM qrcodes`)
+	}
+	return db.Count(ctx,
+		`SELECT COUNT(*) FROM qrcodes WHERE user_id = ?`, userID)
+}
+
 func (db *DB) ListQRCodes(ctx context.Context, f QRFilter) ([]*QRCode, int64, error) {
-	var conds []string
-	var args []any
+	where := []string{"1 = 1"}
+	args := []any{}
+
 	if f.UserID != "" {
-		conds = append(conds, "q.user_id = ?")
+		where = append(where, "q.user_id = ?")
 		args = append(args, f.UserID)
 	}
-	if f.Kind != "" {
-		conds = append(conds, "q.kind = ?")
-		args = append(args, f.Kind)
-	}
-	if f.Status != "" {
-		conds = append(conds, "q.status = ?")
-		args = append(args, f.Status)
-	}
 	if f.CampaignID != "" {
-		conds = append(conds, "q.campaign_id = ?")
+		where = append(where, "q.campaign_id = ?")
 		args = append(args, f.CampaignID)
 	}
-	if q := strings.TrimSpace(f.Query); q != "" {
-		p := LikePattern(q)
-		conds = append(conds, `(LOWER(q.name) LIKE ? ESCAPE '\' OR LOWER(COALESCE(q.destination, '')) LIKE ? ESCAPE '\'
-			OR LOWER(COALESCE(q.slug, '')) LIKE ? ESCAPE '\' OR LOWER(q.content) LIKE ? ESCAPE '\' OR LOWER(u.email) LIKE ? ESCAPE '\')`)
-		args = append(args, p, p, p, p, p)
+	if f.Status != "" {
+		where = append(where, "q.status = ?")
+		args = append(args, f.Status)
 	}
-	where := ""
-	if len(conds) > 0 {
-		where = " WHERE " + strings.Join(conds, " AND ")
+	if f.Kind != "" {
+		where = append(where, "q.kind = ?")
+		args = append(args, f.Kind)
 	}
-	total, err := db.Count(ctx, "SELECT COUNT(*) FROM qrcodes q JOIN users u ON u.id = q.user_id"+where, args...)
-	if err != nil {
+	if f.Query != "" {
+		where = append(where, "(LOWER(q.name) LIKE ? OR LOWER(COALESCE(q.slug, '')) LIKE ?)")
+		pattern := LikePattern(f.Query)
+		args = append(args, pattern, pattern)
+	}
+
+	clause := strings.Join(where, " AND ")
+
+	var total int64
+	if err := db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM qrcodes q WHERE `+clause,
+		args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	order, ok := qrSorts[f.Sort]
-	if !ok {
-		order = qrSorts["-created_at"]
+
+	order := "q.created_at DESC"
+	switch f.Sort {
+	case "created_at":
+		order = "q.created_at ASC"
+	case "-created_at":
+		order = "q.created_at DESC"
+	case "name":
+		order = "q.name ASC"
+	case "-name":
+		order = "q.name DESC"
+	case "scan_count":
+		order = "q.scan_count ASC"
+	case "-scan_count":
+		order = "q.scan_count DESC"
 	}
-	rows, err := db.Query(ctx, qrSelect+where+" ORDER BY "+order+" LIMIT ? OFFSET ?", append(args, f.Limit, f.Offset)...)
+
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	offset := f.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := fmt.Sprintf(
+		"%s WHERE %s ORDER BY %s LIMIT ? OFFSET ?",
+		qrSelect, clause, order,
+	)
+	queryArgs := append(args, limit, offset)
+
+	rows, err := db.Query(ctx, query, queryArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
-	out := []*QRCode{}
+
+	items := make([]*QRCode, 0)
 	for rows.Next() {
 		q, err := scanQRCode(rows)
 		if err != nil {
 			return nil, 0, err
 		}
-		out = append(out, q)
+		db.loadQRFile(ctx, q)
+		items = append(items, q)
 	}
-	return out, total, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
 }
 
-// ---------------------------------------------------------------------------
-// Destination history
-
-// HistoryEntry records a destination change of a dynamic code.
-type HistoryEntry struct {
+type QRHistory struct {
 	ID                  string
 	QRCodeID            string
 	Destination         string
 	PreviousDestination *string
-	ChangedBy           *string
 	ChangedByEmail      *string
 	ChangedAt           int64
 }
 
-func (db *DB) AddHistory(ctx context.Context, qrID, destination string, previous *string, changedBy string) error {
-	var by any
-	if changedBy != "" {
-		by = changedBy
-	}
-	_, err := db.Exec(ctx, `INSERT INTO qrcode_history (id, qrcode_id, destination, previous_destination, changed_by, changed_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, NewSortableID("hist"), qrID, destination, nullString(previous), by, Now())
+func (db *DB) AddHistory(ctx context.Context, qrID, destination string, previous *string, userID string) error {
+	_, err := db.Exec(ctx, `
+		INSERT INTO qrcode_history (
+			id, qrcode_id, destination, previous_destination,
+			changed_by, changed_at
+		) VALUES (?, ?, ?, ?, ?, ?)`,
+		NewID("qhist"), qrID, destination, previous, userID, Now())
 	return err
 }
 
-func (db *DB) ListHistory(ctx context.Context, qrID string) ([]*HistoryEntry, error) {
-	rows, err := db.Query(ctx, `SELECT h.id, h.qrcode_id, h.destination, h.previous_destination, h.changed_by, u.email, h.changed_at
-		FROM qrcode_history h LEFT JOIN users u ON u.id = h.changed_by WHERE h.qrcode_id = ?
-		ORDER BY h.changed_at DESC, h.id DESC`, qrID)
+func (db *DB) ListHistory(ctx context.Context, qrID string) ([]QRHistory, error) {
+	rows, err := db.Query(ctx, `
+		SELECT h.id, h.qrcode_id, h.destination,
+			h.previous_destination, u.email, h.changed_at
+		FROM qrcode_history h
+		LEFT JOIN users u ON u.id = h.changed_by
+		WHERE h.qrcode_id = ?
+		ORDER BY h.changed_at DESC`, qrID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []*HistoryEntry{}
+
+	out := make([]QRHistory, 0)
 	for rows.Next() {
-		var h HistoryEntry
-		var prev, by, email sql.NullString
-		if err := rows.Scan(&h.ID, &h.QRCodeID, &h.Destination, &prev, &by, &email, &h.ChangedAt); err != nil {
+		var h QRHistory
+		if err := rows.Scan(
+			&h.ID, &h.QRCodeID, &h.Destination,
+			&h.PreviousDestination, &h.ChangedByEmail, &h.ChangedAt,
+		); err != nil {
 			return nil, err
 		}
-		h.PreviousDestination, h.ChangedBy, h.ChangedByEmail = ptrString(prev), ptrString(by), ptrString(email)
-		out = append(out, &h)
+		out = append(out, h)
 	}
 	return out, rows.Err()
 }
+
+var _ = errors.Is
+var _ = sql.ErrNoRows

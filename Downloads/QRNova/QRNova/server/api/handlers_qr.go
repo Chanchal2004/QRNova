@@ -426,7 +426,7 @@ func (f *qrFields) target(fields map[string]json.RawMessage) {
 func (s *Server) newSlug(r *http.Request) (string, error) {
 	for i := 0; i < 8; i++ {
 		slug := storage.RandomString(7, slugAlphabet)
-		exists, err := s.DB.SlugExists(r.Context(), slug)
+		exists, err := s.DB.SlugExists(r.Context(), slug, "")
 		if err != nil {
 			return "", err
 		}
@@ -437,23 +437,33 @@ func (s *Server) newSlug(r *http.Request) (string, error) {
 	return "", errors.New("could not allocate a unique slug")
 }
 
-func (s *Server) checkQuota(r *http.Request, u *storage.User) error {
+func (s *Server) checkQuota(r *http.Request, u *storage.User, kind string) error {
 	if u.IsAdmin() {
 		return nil
 	}
-	limit := s.Settings.Get().MaxQRCodesPerUser
-	if u.MaxQRCodes != nil {
-		limit = *u.MaxQRCodes
-	}
-	if limit <= 0 {
+
+	// Static QR codes are unlimited on both plans.
+	if kind == "static" {
 		return nil
 	}
-	n, err := s.DB.CountQRCodes(r.Context(), u.ID)
+
+	// Free users can create 2 dynamic QR codes; Pro users can create 100.
+	limit := int64(2)
+	if strings.EqualFold(u.Plan, "pro") {
+		limit = 100
+	}
+
+	// Preserve an administrator-assigned per-user cap when it is stricter.
+	if u.MaxQRCodes != nil && *u.MaxQRCodes > 0 && *u.MaxQRCodes < limit {
+		limit = *u.MaxQRCodes
+	}
+
+	n, err := s.DB.Count(r.Context(), "SELECT COUNT(*) FROM qrcodes WHERE user_id = ? AND kind = ?", u.ID, "dynamic")
 	if err != nil {
 		return err
 	}
 	if n >= limit {
-		return errorf(http.StatusForbidden, "limit_reached", "You have reached the maximum number of QR codes for your account.")
+		return errorf(http.StatusForbidden, "limit_reached", "You have reached your Dynamic QR limit. Upgrade to Pro for more QR codes.")
 	}
 	return nil
 }
@@ -480,9 +490,6 @@ func (s *Server) createQRCode(w http.ResponseWriter, r *http.Request, p *princip
 	if err != nil {
 		return err
 	}
-	if err := s.checkQuota(r, p.User); err != nil {
-		return err
-	}
 	kind := "dynamic"
 	for _, k := range []string{"kind", "type"} {
 		if raw, ok := fields[k]; ok {
@@ -496,6 +503,10 @@ func (s *Server) createQRCode(w http.ResponseWriter, r *http.Request, p *princip
 	}
 	delete(fields, "kind")
 	delete(fields, "type")
+
+	if err := s.checkQuota(r, p.User, kind); err != nil {
+		return err
+	}
 
 	q := &storage.QRCode{UserID: p.User.ID, Kind: kind, QRType: "url", AnalyticsEnabled: true, Status: "active"}
 	f := &qrFields{s: s, r: r, p: p, q: q, errs: map[string]string{}, creating: true}
@@ -697,7 +708,7 @@ func (s *Server) duplicateQRCode(w http.ResponseWriter, r *http.Request, p *prin
 	if err != nil {
 		return err
 	}
-	if err := s.checkQuota(r, p.User); err != nil {
+	if err := s.checkQuota(r, p.User, src.Kind); err != nil {
 		return err
 	}
 	cp := *src

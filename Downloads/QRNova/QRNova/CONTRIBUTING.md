@@ -19,7 +19,7 @@ Pull requests that conflict with these principles will not be merged:
 Requirements: Node.js 20+, Go 1.26+ for server work, and optionally Docker.
 
 ```bash
-git clone https://github.com/kspkr/QRNova.git
+git clone https://module github.com/kspkr/QRNova/QRNova.git
 cd QrNova
 npm install
 npm run dev          # API on :8080, web app on http://localhost:5173

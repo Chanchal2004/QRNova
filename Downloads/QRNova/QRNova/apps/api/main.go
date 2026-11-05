@@ -1,3 +1,4 @@
+
 // Command api runs the QRNova server: REST API, dynamic QR redirects and
 // (optionally) the built web UI.
 //
@@ -42,6 +43,7 @@ func run() error {
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	migrateOnly := flag.Bool("migrate", false, "apply database migrations and exit")
 	flag.Parse()
+
 	if *showVersion {
 		fmt.Println("QRNova", config.Version)
 		return nil
@@ -51,6 +53,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
 	log := newLogger(cfg.LogFormat)
 	slog.SetDefault(log)
 
@@ -68,6 +71,7 @@ func run() error {
 		return fmt.Errorf("migrations: %w", err)
 	}
 	log.Info("database ready", "driver", db.Dialect, "migrations_applied", applied)
+
 	if *migrateOnly {
 		return nil
 	}
@@ -76,19 +80,24 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load settings: %w", err)
 	}
+
 	srv := api.New(cfg, db, st, log, openapiSpec)
+
 	if cfg.FileUploads.Enabled {
 		store, err := files.Open(cfg.FileUploads.Dir, cfg.FileUploads.MaxBytes)
 		if err != nil {
 			return err
 		}
 		defer store.Close()
+
 		srv.EnableFiles(store)
 		log.Info("file uploads enabled", "dir", cfg.FileUploads.Dir, "max_bytes", cfg.FileUploads.MaxBytes)
 	}
+
 	if err := srv.Bootstrap(ctx); err != nil {
 		return fmt.Errorf("bootstrap admin: %w", err)
 	}
+
 	srv.StartBackgroundJobs(ctx)
 
 	httpServer := &http.Server{
@@ -100,7 +109,9 @@ func run() error {
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    64 << 10,
 	}
+
 	errCh := make(chan error, 1)
+
 	go func() {
 		log.Info("QRNova listening", "addr", cfg.Addr, "base_url", cfg.BaseURLString(), "web_dir", cfg.WebDir)
 		errCh <- httpServer.ListenAndServe()
@@ -111,21 +122,27 @@ func run() error {
 		if !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
+
 	case <-ctx.Done():
 		log.Info("shutting down")
+
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
+
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
 func newLogger(format string) *slog.Logger {
 	opts := &slog.HandlerOptions{Level: slog.LevelInfo}
+
 	if format == "json" {
 		return slog.New(slog.NewJSONHandler(os.Stdout, opts))
 	}
+
 	return slog.New(slog.NewTextHandler(os.Stdout, opts))
 }

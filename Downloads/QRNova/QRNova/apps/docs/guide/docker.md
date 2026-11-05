@@ -15,7 +15,7 @@ Prebuilt images are published to `ghcr.io/kspkr/QRNova` by the repository's Dock
 ## Quick start with PostgreSQL
 
 ```bash
-git clone https://github.com/kspkr/QRNova.git
+git clone https://module github.com/kspkr/QRNova/QRNova.git
 cd QRNova
 docker compose up -d
 ```

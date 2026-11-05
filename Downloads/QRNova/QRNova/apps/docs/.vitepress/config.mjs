@@ -1,6 +1,6 @@
 import { defineConfig } from "vitepress";
 
-const REPO = "https://github.com/kspkr/QRNova";
+const REPO = "https://module github.com/kspkr/QRNova/QRNova";
 
 // Served from the site root locally; the GitHub Pages build sets DOCS_BASE=/QRNova/docs/.
 const base = process.env.DOCS_BASE || "/";
